@@ -10,13 +10,20 @@ RAM ram;
 void Run(){
     ram.init();
     unsigned int cmd = 0;
-    cmd = ram.getCmd(0);
-    while (cmd != 0x0ff00513){ //0ff00513为终止
-        base b;
-        b.deCode(cmd);
-        b.executeCode();
-        if (b.getOp() != 0b1100011 && b.getOp() != 0b1101111 && b.getOp() != 0b1100111) re.move_pc(4);
-        cmd = ram.getCmd(re.get_pc());
+    while (true){
+        IF s1{};
+        ID s2;
+        EXE s3;
+        MEM s4;
+        WB s5;
+
+        s1.Fitch();
+        cmd = s1.code;
+        if (cmd == 0x0ff00513) break; //0ff00513为终止
+        s2.Decode(s1);
+        s3.Execute(s2);
+        s4.Memory(s3);
+        s5.Write_back(s4);
     }
     cout << (re[10] & 255u);
 }
