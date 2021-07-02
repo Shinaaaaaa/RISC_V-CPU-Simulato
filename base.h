@@ -7,6 +7,13 @@
 extern Register re;
 extern RAM ram;
 
+extern int IF_flag;
+extern int ID_flag;
+extern int EXE_flag;
+extern int MEM_flag;
+extern int WB_flag;
+extern int npc;
+
 unsigned check(unsigned data , unsigned int length){
     return data >> (length - 1);
 }
@@ -338,13 +345,15 @@ public:
 
 class IF{
 public:
-    unsigned int pc;
-    unsigned int code;
+    unsigned int pc = 0;
+    unsigned int code = 0;
 
     IF() = default;
 
     void Fitch(){
-        code = ram.getCmd(re.get_pc());
+        if (IF_flag == 0) return;
+        code = ram.getCmd(npc);
+        npc += 4;
         re.move_pc(4);
         pc = re.get_pc();
     }
@@ -352,9 +361,10 @@ public:
 
 class ID{
 public:
-    unsigned int pc{} , code{};
+    unsigned int pc = 0 , code = 0;
     unsigned op{} , fun3 = 0 , fun7 = 0;
     unsigned int rd = 0, rs1 = 0, rs2 = 0, imm = 0;
+    unsigned int value_rs1 , value_rs2;
 
     ID() = default;
 
@@ -362,6 +372,7 @@ public:
         pc = fetch.pc;
         code = fetch.code;
         unsigned cmd = fetch.code;
+        if (code == 0 || ID_flag == 0) return;
         unsigned opcode = (cmd & 0b1111111);
         switch (opcode) {
             case 0b0110111:{// lui
@@ -396,6 +407,8 @@ public:
                 imm += (cmd << 19);
                 imm = (imm << 1);
                 if (check(imm , 21)) imm = sext(imm , 11);
+                re.move_pc(imm - 4);
+                npc = re.get_pc();
                 break;
             }
             case 0b1100111:{ //jalr
@@ -410,6 +423,9 @@ public:
                 imm = cmd;
                 imm = (imm << 1);
                 if (check(imm , 13)) imm = sext(imm , 19);
+                value_rs1 = re[rs1];
+                re.set_pc((value_rs1 + imm) & (~1));
+                npc = re.get_pc();
                 break;
             }
             case 0b1100011:{ //b
@@ -430,6 +446,8 @@ public:
                 imm += (cmd << 11);
                 imm = (imm << 1);
                 if (check(imm , 13)) imm = sext(imm , 19);
+                value_rs1 = re[rs1];
+                value_rs2 = re[rs2];
                 break;
             }
             case 0b0000011:{ //lb , lh , lw , lbu , lhu
@@ -442,6 +460,7 @@ public:
                 rs1 = (cmd & 0b11111);
                 imm = (cmd >> 5);
                 if (check(imm , 12)) imm = sext(imm , 20);
+                value_rs1 = re[rs1];
                 break;
             }
             case 0b0100011:{//sb , sh , sw
@@ -456,6 +475,8 @@ public:
                 rs2 = (cmd & 0b11111);
                 imm += ((cmd >> 5) << 5);
                 if (check(imm , 12)) imm = sext(imm , 20);
+                value_rs1 = re[rs1];
+                value_rs2 = re[rs2];
                 break;
             }
             case 0b0010011: { //addi , xori , ori , andi , slli , srli , srai , slti , sltiu
@@ -473,6 +494,7 @@ public:
                     imm = (cmd & 0b11111);
                     fun7 = (cmd >> 5);
                 }
+                value_rs1 = re[rs1];
                 break;
             }
             case 0b0110011:{ //add , sub , xor , or , and , sll , srl , sra , slt , sltu
@@ -486,16 +508,21 @@ public:
                 cmd = (cmd >> 5);
                 rs2 = (cmd & 0b11111);
                 fun7 = (cmd >> 5);
+                value_rs1 = re[rs1];
+                value_rs2 = re[rs2];
                 break;
             }
             default: throw "error";
         }
+        if (IF_flag == 0) ID_flag = 0;
     }
 };
 
+//TODO 把EXE中地址计算移动到ID中
+
 class EXE{
 public:
-    unsigned int code{} , pc{};
+    unsigned int code = 0 , pc = 0;
     unsigned op{} , fun3 = 0 , fun7 = 0;
     unsigned int rd = 0;
     unsigned int value{} , pos{};
@@ -509,6 +536,7 @@ public:
         fun3 = decode.fun3;
         fun7 = decode.fun7;
         rd = decode.rd;
+        if (code == 0 || EXE_flag == 0) return;
         switch (decode.op) {
             case 0b0110111:{ //lui
                 value = decode.imm;
@@ -519,74 +547,72 @@ public:
                 break;
             }
             case 0b1101111:{ //jal
-                value = re.get_pc();
-                re.move_pc(decode.imm - 4);
+                value = pc;
                 break;
             }
             case 0b1100111:{
-                value = re.get_pc();
-                re.set_pc((re[decode.rs1] + decode.imm) & (~1));
+                value = pc;
                 break;
             }
             case 0b1100011:{
                 switch (fun3) {
                     case 0b000: //beq
-                        if (re[decode.rs1] == re[decode.rs2]) re.move_pc(decode.imm - 4);
+                        if (decode.value_rs1 == decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
                         break;
                     case 0b001: //bne
-                        if (re[decode.rs1] != re[decode.rs2]) re.move_pc(decode.imm - 4);
+                        if (decode.value_rs1 != decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
                         break;
                     case 0b100: //blt
-                        if ((signed)re[decode.rs1] < (signed)re[decode.rs2]) re.move_pc(decode.imm - 4);
+                        if ((signed)decode.value_rs1 < (signed)decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
                         break;
                     case 0b101: //bge
-                        if ((signed)re[decode.rs1] >= (signed)re[decode.rs2]) re.move_pc(decode.imm - 4);
+                        if ((signed)decode.value_rs1 >= (signed)decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
                         break;
                     case 0b110:
-                        if (re[decode.rs1] < re[decode.rs2]) re.move_pc(decode.imm - 4);
+                        if (decode.value_rs1 < decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
                         break;
                     case 0b111:
-                        if (re[decode.rs1] >= re[decode.rs2]) re.move_pc(decode.imm - 4);
+                        if (decode.value_rs1 >= decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
                         break;
                 }
                 break;
             }
             case 0b0000011:{ // l
-                pos = re[decode.rs1] + decode.imm;
+                pos = decode.value_rs1 + decode.imm;
                 break;
             }
             case 0b0100011:{ // s
-                pos = re[decode.rs1] + decode.imm;
-                value = re[decode.rs2];
+                pos = decode.value_rs1 + decode.imm;
+                value = decode.value_rs2;
                 break;
             }
             case 0b0010011:{
                 switch (fun3) {
                     case 0b000: //addi
-                        value = re[decode.rs1] + decode.imm;
+                        value = decode.value_rs1 + decode.imm;
                         break;
                     case 0b010: // slti
-                        value = ((signed)re[decode.rs1] < (signed)decode.imm);
+                        value = ((signed)decode.value_rs1 < (signed)decode.imm);
                         break;
                     case 0b011: // sltiu
-                        value = (re[decode.rs1] < decode.imm);
+                        value = (decode.value_rs1 < decode.imm);
                         break;
                     case 0b100: // xori
-                        value = re[decode.rs1] ^ decode.imm;
+                        value = decode.value_rs1 ^ decode.imm;
                         break;
                     case 0b110: // ori
-                        value = re[decode.rs1] | decode.imm;
+                        value = decode.value_rs1 | decode.imm;
                         break;
                     case 0b111: // andi
-                        value = re[decode.rs1] & decode.imm;
+                        value = decode.value_rs1 & decode.imm;
                         break;
                     case 0b001:
-                        value = (re[decode.rs1] << decode.imm);
+                        value = (decode.value_rs1 << decode.imm);
                         break;
                     case 0b101:
-                        if (fun7 == 0b0000000) value = (re[decode.rs1] >> decode.imm);
+                        if (fun7 == 0b0000000) value = (decode.value_rs1 >> decode.imm);
                         else {
-                            unsigned tmp = (re[decode.rs1] >> decode.imm);
+                            unsigned tmp = (decode.value_rs1 >> decode.imm);
                             if (check(tmp , 32 - decode.imm)) tmp = sext(tmp , decode.imm);
                             value = tmp;
                         }
@@ -599,54 +625,55 @@ public:
                 switch (fun3) {
                     case 0b000:
                         if (fun7 == 0){ //add
-                            value = re[decode.rs2] + re[decode.rs1];
+                            value = decode.value_rs1 + decode.value_rs2;
                         }
                         else{ // sub
-                            value = re[decode.rs1] - re[decode.rs2];
+                            value = decode.value_rs1 - decode.value_rs2;
                         }
                         break;
                     case 0b001: //sll
-                        p = (re[decode.rs2] & 0b11111);
-                        value = (re[decode.rs1] << p);
+                        p = (decode.value_rs2 & 0b11111);
+                        value = (decode.value_rs1 << p);
                         break;
                     case 0b101:
                         if (fun7 == 0){ //srl
-                            p = (re[decode.rs2] & 0b11111);
-                            value = (re[decode.rs1] >> p);
+                            p = (decode.value_rs2 & 0b11111);
+                            value = (decode.value_rs1 >> p);
                         }
                         else { //sra
-                            p = (re[decode.rs2] & 0b11111);
-                            unsigned tmp = (re[decode.rs1] >> p);
+                            p = (decode.value_rs2 & 0b11111);
+                            unsigned tmp = (decode.value_rs1 >> p);
                             if (check(tmp , 32 - p)) tmp = sext(tmp , p);
                             value = tmp;
                         }
                         break;
                     case 0b010: //slt
-                        value = ((signed) re[decode.rs1] < (signed)re[decode.rs2]);
+                        value = ((signed) decode.value_rs1 < (signed)decode.value_rs2);
                         break;
                     case 0b011: //sltu
-                        value = (re[decode.rs1] < re[decode.rs2]);
+                        value = (decode.value_rs1 < decode.value_rs2);
                         break;
                     case 0b100: //xor
-                        value = re[decode.rs1] ^ re[decode.rs2];
+                        value = decode.value_rs1 ^ decode.value_rs2;
                         break;
                     case 0b110: //or
-                        value = re[decode.rs1] | re[decode.rs2];
+                        value = decode.value_rs1 | decode.value_rs2;
                         break;
                     default: //and
-                        value = re[decode.rs1] & re[decode.rs2];
+                        value = decode.value_rs1 & decode.value_rs2;
                         break;
                 }
                 break;
             }
             default: throw "error";
         }
+        if (ID_flag == 0) EXE_flag = 0;
     }
 };
 
 class MEM{
 public:
-    unsigned int code{} , pc{};
+    unsigned int code = 0 , pc = 0;
     unsigned op{} , fun3 = 0 , fun7 = 0;
     unsigned int rd = 0;
     unsigned int value{};
@@ -661,7 +688,7 @@ public:
         fun7 = execute.fun7;
         rd = execute.rd;
         value = execute.value;
-
+        if (code == 0 || MEM_flag == 0) return;
         switch (execute.op) {
             case 0b0000011:{
                 unsigned data;
@@ -708,6 +735,7 @@ public:
             default:
                 break;
         }
+        if (EXE_flag == 0) MEM_flag = 0;
     }
 };
 
@@ -716,6 +744,7 @@ public:
     void Write_back(const MEM &memory){
         unsigned rd = memory.rd;
         unsigned value = memory.value;
+        if (memory.code == 0 || WB_flag == 0) return;
         switch (memory.op) {
             case 0b0110111:{
                 re[rd] = value;
@@ -753,6 +782,7 @@ public:
             }
             default: throw "error";
         }
+        if (MEM_flag == 0) WB_flag = 0;
     }
 };
 #endif //RISC_V_BASE_H
