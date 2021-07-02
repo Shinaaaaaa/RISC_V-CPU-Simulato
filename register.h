@@ -33,5 +33,10 @@ public:
     void move_pc(unsigned int offset){
         pc += offset;
     }
+
+    void show(){
+        for (int i = 0 ; i <= 31 ; ++i) cout << x[i] << " ";
+        cout << endl;
+    }
 };
 #endif //RISC_V_REGISTER_H
