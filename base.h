@@ -10,20 +10,20 @@
 extern Register re;
 extern RAM ram;
 extern predict pre;
+extern unsigned npc;
 
 extern int IF_flag;
 extern int ID_flag;
 extern int EXE_flag;
 extern int MEM_flag;
 extern int WB_flag;
-extern unsigned npc;
 
 extern unsigned EXE_value;
 extern unsigned MEM_value;
 
 extern unsigned before_pre_pc;
 extern unsigned jump_pc;
-extern int pre_flag;
+extern int reality_flag;
 extern int jump_flag;
 
 unsigned check(unsigned data , unsigned int length){
@@ -228,8 +228,6 @@ public:
     }
 };
 
-//TODO 把EXE中地址计算移动到ID中
-
 class EXE{
 public:
     unsigned int code = 0 , pc = 0;
@@ -276,29 +274,29 @@ public:
             case 0b1100011:{
                 switch (fun3) {
                     case 0b000: //beq
-                        if (decode.value_rs1 == decode.value_rs2) pre_flag = 1 , pre.predict_jump(pc - 4);
-                        else pre_flag = 0 , pre.predict_stay(pc - 4);
+                        if (decode.value_rs1 == decode.value_rs2) reality_flag = 1 , pre.predict_jump(pc - 4);
+                        else reality_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                     case 0b001: //bne
-                        if (decode.value_rs1 != decode.value_rs2) pre_flag = 1 , pre.predict_jump(pc - 4);
-                        else pre_flag = 0 , pre.predict_stay(pc - 4);
+                        if (decode.value_rs1 != decode.value_rs2) reality_flag = 1 , pre.predict_jump(pc - 4);
+                        else reality_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                     case 0b100: //blt
-                        if ((signed)decode.value_rs1 < (signed)decode.value_rs2) pre_flag = 1 , pre.predict_jump(pc - 4);
-                        else pre_flag = 0 , pre.predict_stay(pc - 4);
+                        if ((signed)decode.value_rs1 < (signed)decode.value_rs2) reality_flag = 1 , pre.predict_jump(pc - 4);
+                        else reality_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                     case 0b101: //bge
-                        if ((signed)decode.value_rs1 >= (signed)decode.value_rs2) pre_flag = 1 , pre.predict_jump(
+                        if ((signed)decode.value_rs1 >= (signed)decode.value_rs2) reality_flag = 1 , pre.predict_jump(
                                     pc - 4);
-                        else pre_flag = 0 , pre.predict_stay(pc - 4);
+                        else reality_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                     case 0b110:
-                        if (decode.value_rs1 < decode.value_rs2) pre_flag = 1 , pre.predict_jump(pc - 4);
-                        else pre_flag = 0 , pre.predict_stay(pc - 4);
+                        if (decode.value_rs1 < decode.value_rs2) reality_flag = 1 , pre.predict_jump(pc - 4);
+                        else reality_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                     case 0b111:
-                        if (decode.value_rs1 >= decode.value_rs2) pre_flag = 1 , pre.predict_jump(pc - 4);
-                        else pre_flag = 0 , pre.predict_stay(pc - 4);
+                        if (decode.value_rs1 >= decode.value_rs2) reality_flag = 1 , pre.predict_jump(pc - 4);
+                        else reality_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                 }
                 break;
