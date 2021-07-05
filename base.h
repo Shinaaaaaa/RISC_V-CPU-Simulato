@@ -4,8 +4,12 @@
 
 #ifndef RISC_V_BASE_H
 #define RISC_V_BASE_H
+
+#include "predict.h"
+
 extern Register re;
 extern RAM ram;
+extern predict pre;
 
 extern int IF_flag;
 extern int ID_flag;
@@ -16,6 +20,11 @@ extern unsigned npc;
 
 extern unsigned EXE_value;
 extern unsigned MEM_value;
+
+extern unsigned before_pre_pc;
+extern unsigned jump_pc;
+extern int pre_flag;
+extern int jump_flag;
 
 unsigned check(unsigned data , unsigned int length){
     return data >> (length - 1);
@@ -32,12 +41,16 @@ public:
 
     IF() = default;
 
+    void clear(){
+        pc = 0;
+        code = 0;
+    }
+
     void Fitch(){
         if (IF_flag == 0) return;
         code = ram.getCmd(npc);
         npc += 4;
-        re.move_pc(4);
-        pc = re.get_pc();
+        pc = npc;
     }
 };
 
@@ -99,8 +112,7 @@ public:
                 imm += (cmd << 19);
                 imm = (imm << 1);
                 if (check(imm , 21)) imm = sext(imm , 11);
-                re.move_pc(imm - 4);
-                npc = re.get_pc();
+                npc += imm - 4;
                 break;
             }
             case 0b1100111:{ //jalr
@@ -116,8 +128,7 @@ public:
                 imm = (imm << 1);
                 if (check(imm , 13)) imm = sext(imm , 19);
                 value_rs1 = re[rs1];
-                re.set_pc((value_rs1 + imm) & (~1));
-                npc = re.get_pc();
+                npc = (value_rs1 + imm) & (~1);
                 break;
             }
             case 0b1100011:{ //b
@@ -140,6 +151,14 @@ public:
                 if (check(imm , 13)) imm = sext(imm , 19);
                 value_rs1 = re[rs1];
                 value_rs2 = re[rs2];
+                //分支预测
+                before_pre_pc = pc;
+                jump_pc = pc + imm - 4;
+                if (pre.get_predict(pc - 4) > 1){
+                    jump_flag = 1;
+                    npc += imm - 4;
+                }
+                else jump_flag = 0;
                 break;
             }
             case 0b0000011:{ //lb , lh , lw , lbu , lhu
@@ -243,7 +262,7 @@ public:
                 break;
             }
             case 0b0010111:{ //auipc
-                value = re.get_pc() + decode.imm - 4;
+                value = pc + decode.imm - 4;
                 break;
             }
             case 0b1101111:{ //jal
@@ -257,22 +276,29 @@ public:
             case 0b1100011:{
                 switch (fun3) {
                     case 0b000: //beq
-                        if (decode.value_rs1 == decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
+                        if (decode.value_rs1 == decode.value_rs2) pre_flag = 1 , pre.predict_jump(pc - 4);
+                        else pre_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                     case 0b001: //bne
-                        if (decode.value_rs1 != decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
+                        if (decode.value_rs1 != decode.value_rs2) pre_flag = 1 , pre.predict_jump(pc - 4);
+                        else pre_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                     case 0b100: //blt
-                        if ((signed)decode.value_rs1 < (signed)decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
+                        if ((signed)decode.value_rs1 < (signed)decode.value_rs2) pre_flag = 1 , pre.predict_jump(pc - 4);
+                        else pre_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                     case 0b101: //bge
-                        if ((signed)decode.value_rs1 >= (signed)decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
+                        if ((signed)decode.value_rs1 >= (signed)decode.value_rs2) pre_flag = 1 , pre.predict_jump(
+                                    pc - 4);
+                        else pre_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                     case 0b110:
-                        if (decode.value_rs1 < decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
+                        if (decode.value_rs1 < decode.value_rs2) pre_flag = 1 , pre.predict_jump(pc - 4);
+                        else pre_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                     case 0b111:
-                        if (decode.value_rs1 >= decode.value_rs2) re.move_pc(decode.imm - 4) , npc = re.get_pc();
+                        if (decode.value_rs1 >= decode.value_rs2) pre_flag = 1 , pre.predict_jump(pc - 4);
+                        else pre_flag = 0 , pre.predict_stay(pc - 4);
                         break;
                 }
                 break;
@@ -368,7 +394,6 @@ public:
             default: throw "error";
         }
         EXE_value = value;
-
     }
 };
 

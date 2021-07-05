@@ -6,6 +6,7 @@ using namespace std;
 
 Register re;
 RAM ram;
+predict pre;
 
 int IF_flag = 1;
 int ID_flag = 1;
@@ -17,10 +18,21 @@ unsigned npc = 0;
 unsigned EXE_value = 0;
 unsigned MEM_value = 0;
 
+unsigned before_pre_pc = 0;
+unsigned jump_pc = 0;
+int pre_flag;
+int jump_flag;
+
+int count = 0 , s_cnt = 0, f_cnt = 0;
+
 IF add_bubble(){
     IF bubble{};
     bubble.code = bubble.pc = 0;
     return bubble;
+}
+
+void get_pre_P(){
+    cout << (double) s_cnt/count;
 }
 
 void Run(){
@@ -34,6 +46,25 @@ void Run(){
         s5.Write_back(s4);
         s4.Memory(s3);
         s3.Execute(s2);
+
+        //分支预测的回滚
+        if (s3.op == 0b1100011){
+            count++;
+            if (jump_flag == 1 && pre_flag == 0){
+                s1.clear();
+                npc = before_pre_pc;
+                f_cnt++;
+            }
+            else if (jump_flag == 0 && pre_flag == 1){
+                s1.clear();
+                npc = jump_pc;
+                f_cnt++;
+            }
+            else {
+                s_cnt++;
+            }
+        }
+
         s2.Decode(s1);
 
         if (s2.rs1 == s4.rd && s4.rd != 0){
@@ -109,11 +140,7 @@ void Run(){
         }
         // 处理数据冒险
 
-        if (s2.op == 0b1100011){ // 加入空泡处理跳转
-            s1 = add_bubble();
-        }
-        else s1.Fitch();
-
+        s1.Fitch();
         if (s1.code == 0x0ff00513) IF_flag = 0; //0ff00513为终止
     }
     cout << (re[10] & 255u);
